@@ -16,7 +16,6 @@ public class ScalableThreadPool implements ThreadPool {
     private final Object lock = new Object();
     private final List<Worker> workers = new ArrayList<Worker>();
     private final Queue<Runnable> tasks = new ArrayDeque<Runnable>();
-    private AtomicInteger countThreads = new AtomicInteger(0);
     private AtomicInteger minThreads;
     private AtomicInteger maxThreads;
 
@@ -26,109 +25,108 @@ public class ScalableThreadPool implements ThreadPool {
     }
 
     public void start() {
-        for (int i = 0; i < minThreads.get(); i++) addWorker("Добавление до минимума");
-    }
-
-    public void addWorker(String message) {
-        System.out.println(message);
-        if (countThreads.get() <= maxThreads.get()) {
-            Worker x = new Worker();
-            x.setName("Worker_" + countThreads.get());
-            workers.add(x);
-            x.start();
-            countThreads.incrementAndGet();
+        for (int i = 0; i < minThreads.get(); i++) {
+            addWorker();
         }
     }
 
-    public void removeWorker(String message) {
-        System.out.println(message);
-        if (countThreads.get() > minThreads.get()) {
-            synchronized (lock) {
-                for (Worker worker : workers) {
-                    worker.setExit(true);
-                    countThreads.decrementAndGet();
-                    worker.interrupt();
-                    lock.notify();
-                    break;
-                }
+    public void execute(Runnable runnable) {
+        synchronized (tasks) {
+            tasks.add(runnable);
+            synchronized (workers) {
+                if (workers.size() < tasks.size()) addWorker();
+            }
+        }
+        synchronized (lock) {
+            lock.notify();
+        }
+    }
+
+
+    public void addWorker() {
+        synchronized (workers) {
+            if (workers.size() < maxThreads.get()) {
+                Worker newWorker = new Worker();
+                workers.add(newWorker);
+                System.out.println("Добавляем исполнителя " + newWorker.getName());
+                newWorker.start();
+            }
+        }
+    }
+
+    public void removeWorker(Worker worker) {
+        synchronized (workers) {
+            if (workers.size() > minThreads.get()) {
+                System.out.println("Удаляем исполнителя " + worker.getName());
+                workers.remove(worker);
+                worker.interrupt();
             }
         }
     }
 
 
-    public void execute(Runnable runnable) {
-        tasks.add(runnable);
-        synchronized (lock) {
-            lock.notifyAll();
-        }
-        if (tasks.size() > minThreads.get() && tasks.size() < maxThreads.get())
-            addWorker("Добавление из-за переполнения, т.к. задача больше чем минимальное число потоков исполнителей.");
-    }
-
     public void printQueue() {
-        System.out.println("printQueue :");
-        int count = 1;
-        for (Runnable task : tasks) {
-            System.out.println(count + " " + task);
-            count++;
+        System.out.println("\n Печатаем очередь заданий:");
+        synchronized (tasks) {
+            for (Runnable task : tasks) System.out.println(task);
         }
         System.out.println("\n");
     }
 
 
-    private class Worker extends Thread { // Исполнитель задач
-
-        private boolean exit = false;
-
-        public boolean isExit() {
-            return exit;
+    public void stop() {
+        synchronized (workers) {
+            System.out.println("Stop workers, на текущий момент потоков не завершено: " + workers.size());
+            for (Worker worker : workers) {
+                worker.interrupt();
+            }
         }
 
-        public void setExit(boolean exit) {
-            this.exit = exit;
+        synchronized (lock) {
+            System.out.println("В итоге в конце смогли проснуться потоки:");
+            lock.notifyAll();
         }
+    }
 
+
+    public class Worker extends Thread { // Исполнитель задач
         @Override
         public void run() {
             System.out.println(this.getName() + " запущен");
             try {
                 while (!this.isInterrupted()) {
-                    synchronized (lock) {
-                        if (tasks.isEmpty()) {
-                            System.out.println(this.getName() + " засыпает");
-
-                            if (tasks.size() > minThreads.get() && tasks.size() <= maxThreads.get())
-                                removeWorker("Поток удаляется из-за ненадобности");
-                            else lock.wait();
-
-                            System.out.println(this.getName() + " просыпается");
-                            if (isExit()) Thread.currentThread().interrupt();
+                    Runnable task = null;
+                    synchronized (tasks) {
+                        if (!tasks.isEmpty()) task = tasks.poll();
+                        else {
+                            synchronized (workers) {
+                                if (workers.size() > tasks.size()) {
+                                    removeWorker(this);
+                                    continue;
+                                }
+                            }
                         }
                     }
 
-
-                    if (!tasks.isEmpty()) {
-                        Runnable task = tasks.poll();
+                    if (task != null) {
                         try {
+                            System.out.print(this.getName() + " начал выполнять задачу: ");
                             task.run();
                         } catch (Exception e) {
-                            throw new RuntimeException("Задача " + task + " выбросила ошибку " + e);
+                            throw new RuntimeException("Задача " + task + " завершилась с ошибкой: " + e);
                         }
-
+                    } else {
+                        synchronized (lock) {
+                            System.out.println(this.getName() + " засыпает");
+                            lock.wait();
+                            System.out.println(this.getName() + " просыпается");
+                        }
                     }
-
                 }
             } catch (InterruptedException e) {
-                throw new RuntimeException(this.getName() + " выбросил ошибку " + e);
+                System.out.println(this.getName() + " завершен через InterruptedException" + e);
             }
-            System.out.println(this.getName() + " завершен");
-        }
-    }
-
-    public void stop() {
-        System.out.println("Stop workers");
-        for (Worker worker : workers) {
-            removeWorker("Удаление перед завершением программы");
+            System.out.println(this.getName() + " завершен.");
         }
     }
 

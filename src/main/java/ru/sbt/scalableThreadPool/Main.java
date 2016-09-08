@@ -8,25 +8,22 @@ import ru.sbt.model.Task;
  */
 public class Main {
     public static void main(String[] args) throws InterruptedException {
-        ScalableThreadPool pool = new ScalableThreadPool(2,7);
+        ScalableThreadPool pool = new ScalableThreadPool(2,5);
         pool.start();
 
-
-        //  Thread.currentThread().sleep(2000);
-
-        for (int i = 0; i < 25; i++) {
-            Task t = new Task("Задача "+i, 3000L);
+        for (int i = 0; i < 13; i++) {
+            Task t = new Task("Задача "+i, 1000L);
             pool.execute(t);
         }
 
-        for (int i = 0; i < 5; i++) {
-            Thread.currentThread().sleep(5000);
+        for (int i = 0; i < 3; i++) {
+            Thread.currentThread().sleep(2000);
             pool.printQueue();
         }
 
 
 
-       // Thread.currentThread().sleep(20000);
+        Thread.currentThread().sleep(1000);
         pool.stop();
     }
 }

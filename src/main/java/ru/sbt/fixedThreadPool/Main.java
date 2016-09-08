@@ -34,7 +34,7 @@ public class Main {
         // Thread.currentThread().sleep(3000);
         // pool.printQueue();
 
-        Thread.currentThread().sleep(20000);
+        Thread.currentThread().sleep(10000);
         pool.stop();
     }
 }
